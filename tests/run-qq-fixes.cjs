@@ -2,7 +2,7 @@ const { build } = require('esbuild');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 (async () => {
-  for (const test of ['qq-images', 'body-assembler']) {
+  for (const test of ['qq-images', 'qq-native-replies', 'body-assembler']) {
   const output = `tests/.${test}.test.cjs`;
   await build({
     entryPoints: [`tests/${test}.test.ts`], outfile: output,

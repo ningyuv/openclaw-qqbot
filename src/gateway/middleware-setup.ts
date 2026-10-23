@@ -26,6 +26,7 @@ import { getPersistedRefIndexStore } from '../features/ref-index-store.js';
 import { createPolicyInjector } from '../middleware/policy-injector.js';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.js';
 import { dynamicAccessControl } from '../middleware/access-control.js';
+import { rememberReplyReferences } from '../features/reply-reference.js';
 import { mediaHistoryBuffer, enrichMediaRef } from '../middleware/media-context.js';
 import { stripMentionText } from '../utils/mention.js';
 
@@ -50,6 +51,7 @@ export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts
 
   // Authorize before recording media or reply references.
   bot.use(dynamicAccessControl({ accountId: account.accountId, getRuntime: opts.getRuntime }));
+  bot.use(rememberReplyReferences(account.accountId));
   bot.use(mediaHistoryBuffer(getHistoryStore(), (ctx) => {
     const gid = ctx.message.groupOpenid;
     return ctx.message.kind === 'group' && gid ? historyGroupKey(account.accountId, gid) : undefined;
