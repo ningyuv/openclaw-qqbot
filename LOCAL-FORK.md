@@ -1,7 +1,7 @@
 # QQ local fork
 
 User-authorized fork of tencent-connect/openclaw-qqbot, upstream commit 8998881, official version 2.0.4.
-Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.2. Plugin ID and QQ channel ID remain unchanged.
+Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.3. Plugin ID and QQ channel ID remain unchanged.
 Branch: fix/qq-media-and-native-replies. GitHub fork: https://github.com/ningyuv/openclaw-qqbot
 Review branch: https://github.com/ningyuv/openclaw-qqbot/tree/fix/qq-media-and-native-replies
 
@@ -13,7 +13,7 @@ Changes:
 - Context images: explicit quote first, most recent four buffered history pictures, at most eight context images total. Image downloads have a 20 MiB / 15 second limit. Other upstream attachment limits remain unchanged.
 - Native group text replies carry message_reference.message_id=the triggering message's msgIdx/REFIDX, while retaining msg_id and Markdown. Reply reference lookup is scoped by account, peer and exact message ID, with a ten-minute TTL.
 - Native quotes use explicit reply IDs only; cached passive-reply IDs do not select a quote.
-- Explicit HTTP 400/422 unsupported-reference rejections retry ordinary text once; network/timeouts/rate-limit/server errors do not retry.
+- Explicit HTTP 400/422 unsupported-reference rejections retry ordinary text once with the original quoted target, even if the peer cache advanced; network/timeouts/rate-limit/server errors do not retry.
 - Context images download concurrently while preserving label order; filename-only recovery requires the exact quoted message reference.
 - Missing reference IDs fall back to upstream text sending; no fabricated references or proactive test messages.
 
