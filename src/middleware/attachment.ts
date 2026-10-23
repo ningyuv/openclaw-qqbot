@@ -60,10 +60,13 @@ export function attachmentProcessor(opts: AttachmentMiddlewareOptions) {
       const runtime = opts.getRuntime();
       const adapters = getAdapters(runtime);
       const cfg = (adapters.getConfig?.() ?? {}) as Record<string, unknown>;
-      const result = await processAttachments(attachments ?? [], cfg, ctx.log);
+      const [result, contextResults] = await Promise.all([
+        processAttachments(attachments ?? [], cfg, ctx.log),
+        Promise.all(contextImages.map(({ attachment }) => processAttachments([attachment], cfg, ctx.log))),
+      ]);
       const labels: string[] = [];
-      for (const { attachment, label } of contextImages) {
-        const image = await processAttachments([attachment], cfg, ctx.log);
+      for (const [index, { label }] of contextImages.entries()) {
+        const image = contextResults[index]!;
         result.imageUrls.push(...image.imageUrls);
         result.localMediaPaths.push(...image.localMediaPaths);
         result.localMediaTypes.push(...image.localMediaTypes);
@@ -84,6 +87,7 @@ export function attachmentProcessor(opts: AttachmentMiddlewareOptions) {
 
 type Log = { info: (m: string) => void; error: (m: string) => void; debug?: (m: string) => void };
 
+/** Download/process attachments in parallel and retain their original media order. */
 async function processAttachments(
   attachments: MessageAttachment[],
   cfg: Record<string, unknown>,
@@ -298,6 +302,7 @@ function normalizeUrl(url: string | undefined): string {
   return url.startsWith('//') ? `https:${url}` : url;
 }
 
+/** Download HTTPS media with an image-specific budget; preserve URL fallback on failure. */
 async function downloadMediaFile(
   url: string,
   filename?: string,

@@ -4,6 +4,7 @@ import { mediaHistoryBuffer, enrichMediaRef, collectContextImages } from '../src
 import { attachmentProcessor } from '../src/middleware/attachment.js';
 import { assembleBody } from '../src/dispatch/body-assembler.js';
 import { buildCtxPayload } from '../src/dispatch/ctx-builder.js';
+import { downloadFixture } from './helpers/media-download.js';
 import { buildEnvelope } from '../src/dispatch/envelope-builder.js';
 
 const account = { accountId: 'test-account', markdownSupport: true, config: {} } as any;
@@ -18,6 +19,7 @@ const chain = [
   mentionGate(),
   attachmentProcessor({ getRuntime: () => runtime, refStore: store }),
 ];
+/** Create one synthetic group event with mention policy and stop tracking. */
 function message(id: string, extra: any = {}): any {
   const m = {
     messageId: id, msgIdx: `REFIDX_${id}`, content: '', kind: 'group',
@@ -28,14 +30,17 @@ function message(id: string, extra: any = {}): any {
   return { message: m, bot: { appId: 'bot' }, state: { policy: { group: { requireMention: true, historyLimit: 20 } } }, log,
     stop(reason: string) { this.stopped = true; this.reason = reason; } };
 }
+/** Run the real SDK middleware chain and count only events reaching dispatch. */
 async function run(ctx: any) {
   let i = -1;
+  /** Advance to the next middleware or the dispatch sentinel. */
   async function next() { i++; if (i < chain.length) await chain[i](ctx, next); else dispatches++; }
   await next();
   return ctx;
 }
 const picture = { content_type: 'image/png', url: 'https://example.com/first.png', filename: 'first.png' };
 
+/** Check quoted-media recovery, mention gating, isolation and concurrent download ordering. */
 async function main() {
   const unmentioned = await run(message('picture', { attachments: [picture] }));
   assert.equal(dispatches, 0, 'unmentioned picture must not invoke the AI');
@@ -63,6 +68,60 @@ async function main() {
   const split = await run(message('split-at', { content: 'Look at that', rawEventType: 'GROUP_AT_MESSAGE_CREATE' }));
   assert.ok(split.state.processedAttachments.localMediaPaths.some((p: string) => p.endsWith('split.png')),
     'separate picture + mention events must retain image data');
+
+  // A missing quoted original must not turn another message's image.png into the quote.
+  const sameName = message('missing-original');
+  sameName.state.quote = { refKey: 'REFIDX_missing', text: '[image: image.png]',
+    attachments: [{ contentType: 'image/png', filename: 'image.png', url: '' }] };
+  sameName.state.history = [{ senderId: 'bob', senderName: 'Bob', messageId: 'unrelated',
+    msgIdx: 'REFIDX_unrelated', content: '', timestamp: 0,
+    attachments: [{ ...picture, filename: 'image.png', url: 'https://example.com/unrelated.png' }] }];
+  const matchingNames = await collectContextImages(sameName, store);
+  assert.equal(matchingNames.filter(x => x.label === 'Quoted image').length, 0,
+    'same filename in an unrelated message must never recover a quoted image');
+  assert.ok(matchingNames.every(x => x.label.startsWith('History image')),
+    'unrelated images may retain their own history label, never the quoted-image label');
+  sameName.state.history[0].msgIdx = 'REFIDX_missing';
+  assert.equal((await collectContextImages(sameName, store))[0]?.label, 'Quoted image',
+    'an exact original reference may still recover a filename-only quote');
+
+  const concurrent = message('concurrent');
+  concurrent.state.quote = { refKey: 'REFIDX_parallel', text: '[images]', attachments: ['one', 'two', 'three'].map(name => ({
+    contentType: 'image/png', filename: `${name}.png`, url: `https://example.com/${name}.png`,
+  })) };
+  const pending = new Map<string, () => void>();
+  let allStarted!: () => void;
+  const started = new Promise<void>(resolve => { allStarted = resolve; });
+  downloadFixture.handler = async opts => {
+    await new Promise<void>(resolve => {
+      pending.set(opts.originalFilename!, resolve);
+      if (pending.size === 3) allStarted();
+    });
+    if (opts.originalFilename === 'two.png') throw new Error('Synthetic image download failure');
+    return { path: `/tmp/qqbot-regression/${opts.originalFilename}` };
+  };
+  const processing = attachmentProcessor({ getRuntime: () => runtime, refStore: store })(concurrent, async () => {});
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([started, new Promise<never>((_, reject) => {
+      guard = setTimeout(() => reject(new Error('Context downloads did not start concurrently')), 1000);
+    })]);
+    // Complete in reverse order, including one failed download.
+    for (const name of ['three.png', 'two.png', 'one.png']) pending.get(name)!();
+    await processing;
+    assert.deepEqual(concurrent.state.processedAttachments.imageUrls, [
+      '/tmp/qqbot-regression/one.png', 'https://example.com/two.png', '/tmp/qqbot-regression/three.png',
+    ], 'media and their labels must retain input order despite out-of-order completion or failure');
+    assert.deepEqual(concurrent.state.processedAttachments.contextImageInfo.split('\n'), [
+      'Quoted image: /tmp/qqbot-regression/one.png', 'Quoted image: https://example.com/two.png',
+      'Quoted image: /tmp/qqbot-regression/three.png',
+    ]);
+  } finally {
+    clearTimeout(guard);
+    downloadFixture.handler = undefined;
+    for (const release of pending.values()) release();
+    await processing;
+  }
 
   const foreign = message('foreign', { groupOpenid: 'group-b', replyTarget: { scope: 'group', targetId: 'group-b' },
     refMsgIdx: 'REFIDX_picture' });
