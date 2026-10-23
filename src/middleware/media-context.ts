@@ -34,6 +34,7 @@ export function mediaHistoryBuffer(store: HistoryStore, groupKey: (ctx: Middlewa
   };
 }
 
+/** Keep original attachment metadata scoped to the peer that produced its reference. */
 export function enrichMediaRef(entry: RefEntry, ctx: MiddlewareContext): MediaRefEntry {
   return {
     ...entry,
@@ -50,6 +51,7 @@ export async function collectContextImages(ctx: MiddlewareContext, store: RefInd
   const history = (ctx.state.history ?? []) as MediaHistoryEntry[];
   const out: ContextImage[] = [];
   const seen = new Set((ctx.message.attachments ?? []).map(a => a.url).filter(Boolean));
+  /** Keep only unique, downloadable pictures while preserving quote-first order. */
   const add = (a: MessageAttachment, label: string) => {
     if (!a.content_type?.startsWith('image/') || !a.url || seen.has(a.url)) return;
     seen.add(a.url);
@@ -63,7 +65,6 @@ export async function collectContextImages(ctx: MiddlewareContext, store: RefInd
     for (const a of quote.attachments ?? []) {
       const recovered = !a.url && a.filename
         ? originals.find(o => o.filename === a.filename)
-          ?? [...history].reverse().flatMap(h => h.attachments ?? []).find(o => o.filename === a.filename)
         : undefined;
       add(recovered ?? { content_type: a.contentType, url: a.url, filename: a.filename }, 'Quoted image');
     }
