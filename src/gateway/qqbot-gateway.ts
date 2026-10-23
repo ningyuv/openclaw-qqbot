@@ -179,7 +179,7 @@ export class QQBotGateway {
       quoted ? this.bot.send(quoted).catch((err: unknown) => {
         if (!isUnsupportedReferenceError(err)) throw err;
         this.log.warn('QQ rejected native message references; retrying this reply as ordinary text');
-        return this.bot.sendText(resolvedTarget, text);
+        return this.bot.sendText(quoted.target, text);
       }) : this.bot.sendText(resolvedTarget, text),
       this.textTimeout, 'sendText',
     );

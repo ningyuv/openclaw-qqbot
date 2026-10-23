@@ -51,6 +51,8 @@ async function main() {
   assert.equal(ordinarySends, 1);
   assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, 'Answer', { msgId: undefined })).id, 'ordinary');
 
+  // A newer cached message must never replace the explicit reply association on downgrade.
+  cacheMsgId('group', 'group-a', 'newer-question');
   for (const markdownSupport of [true, false]) {
     gateway.account = { ...account, markdownSupport };
     gateway.bot.send = async (o: any) => {
@@ -58,9 +60,11 @@ async function main() {
       assert.equal(o.target.msgId, 'question');
       throw new ApiError('message_reference is not supported', 400, '/v2/groups/group-a/messages');
     };
-    const before = ordinarySends;
-    assert.equal((await gateway.sendText(target, 'Answer', { msgId: 'question' })).id, 'ordinary');
-    assert.equal(ordinarySends, before + 1, 'unsupported reference must retry ordinary text exactly once');
+    for (const opts of [undefined, { msgId: 'question' }]) {
+      const before = ordinarySends;
+      assert.equal((await gateway.sendText(target, 'Answer', opts)).id, 'ordinary');
+      assert.equal(ordinarySends, before + 1, 'unsupported reference must retry the original message exactly once');
+    }
   }
   for (const error of [
     new ApiError('Network error', 0, '/v2/groups/group-a/messages'),
