@@ -3,6 +3,7 @@ import type { Middleware, ReplyTarget, SendMessageOptions } from '@tencent-conne
 const TTL_MS = 10 * 60 * 1000;
 const MAX_ENTRIES = 2000;
 const refs = new Map<string, { ref: string; at: number }>();
+/** Namespace references by account, conversation and exact incoming message. */
 function key(accountId: string, target: ReplyTarget, msgId: string): string {
   return JSON.stringify([accountId, target.scope, target.targetId, msgId]);
 }
@@ -24,6 +25,7 @@ export function rememberReplyReferences(accountId: string): Middleware {
   };
 }
 
+/** Build a visible group quote only when an unexpired exact reference is known. */
 export function quotedTextOptions(accountId: string, target: ReplyTarget, text: string, markdown: boolean): SendMessageOptions | undefined {
   if (target.scope !== 'group' || !target.msgId) return undefined;
   const entry = refs.get(key(accountId, target, target.msgId));
