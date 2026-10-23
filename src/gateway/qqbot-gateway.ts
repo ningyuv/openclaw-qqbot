@@ -14,6 +14,7 @@ import {
   type StreamSession,
 } from '@tencent-connect/qqbot-nodejs';
 import os from 'node:os';
+import { ApiError } from '@tencent-connect/qqbot-nodejs/protocol';
 import type { PluginRuntime } from 'openclaw/plugin-sdk';
 import type { ResolvedQQBotAccount } from '../types.js';
 import type { PluginLogger } from '../utils/plugin-logger.js';
@@ -169,9 +170,17 @@ export class QQBotGateway {
 
   async sendText(target: ReplyTarget, text: string, opts?: SendOptions): Promise<MessageResponse> {
     const resolvedTarget = attachMsgId(target, opts);
-    const quoted = quotedTextOptions(this.account.accountId, resolvedTarget, text, this.account.markdownSupport);
+    // A cached passive-reply ID is not an explicit request to quote a message.
+    const quoteMsgId = opts?.msgId ?? target.msgId;
+    const quoted = quoteMsgId
+      ? quotedTextOptions(this.account.accountId, { ...target, msgId: quoteMsgId }, text, this.account.markdownSupport)
+      : undefined;
     return withTimeout(
-      quoted ? this.bot.send(quoted) : this.bot.sendText(resolvedTarget, text),
+      quoted ? this.bot.send(quoted).catch((err: unknown) => {
+        if (!isUnsupportedReferenceError(err)) throw err;
+        this.log.warn('QQ rejected native message references; retrying this reply as ordinary text');
+        return this.bot.sendText(resolvedTarget, text);
+      }) : this.bot.sendText(resolvedTarget, text),
       this.textTimeout, 'sendText',
     );
   }
@@ -329,6 +338,14 @@ export class QQBotGateway {
       return session;
     };
   }
+}
+
+/** Retry only an explicit client-side unsupported-reference rejection, never an ambiguous send failure. */
+function isUnsupportedReferenceError(err: unknown): boolean {
+  if (!(err instanceof ApiError) || ![400, 422].includes(err.httpStatus)) return false;
+  const message = `${err.bizMessage ?? ''} ${err.message}`;
+  return /message_reference|message[ _-]?reference|消息引用|引用消息/i.test(message)
+    && /unsupported|not[ _-]?supported|not support|不支持|未支持/i.test(message);
 }
 
 function attachMsgId(target: ReplyTarget, opts?: SendOptions): ReplyTarget {

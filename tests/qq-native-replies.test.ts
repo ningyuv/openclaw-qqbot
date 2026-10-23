@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { ApiError } from '@tencent-connect/qqbot-nodejs/protocol';
+import { cacheMsgId } from '../src/features/msgid-cache.js';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { rememberReplyReferences, quotedTextOptions } from '../src/features/reply-reference.js';
 import { QQBotGateway } from '../src/gateway/qqbot-gateway.js';
 
 const account = { accountId: 'test-account', markdownSupport: true, config: {} } as any;
+/** Verify exact references, cached-ID separation and narrowly scoped error fallback. */
 async function main() {
   await rememberReplyReferences(account.accountId)({ message: {
     kind: 'group', messageId: 'question', msgIdx: 'REFIDX_question',
@@ -33,6 +36,46 @@ async function main() {
     sendText: async () => { throw new Error('native quote path was bypassed'); } };
   assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, 'Answer', { msgId: 'question' })).id, 'sent');
   assert.equal(wire.messageReference.message_id, 'REFIDX_question');
+  // An API call without an explicit reply ID must retain ordinary text behavior,
+  // even when passive-reply authorization can be restored from the peer cache.
+  cacheMsgId('group', 'group-a', 'question');
+  let ordinarySends = 0;
+  gateway.log = { warn() {} };
+  gateway.bot = {
+    send: async () => { throw new Error('A cached peer ID must not select a quote'); },
+    sendText: async (t: any, text: string) => {
+      ordinarySends++; assert.equal(t.msgId, 'question'); assert.equal(text, 'Answer'); return { id: 'ordinary' };
+    },
+  };
+  assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, 'Answer')).id, 'ordinary');
+  assert.equal(ordinarySends, 1);
+  assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, 'Answer', { msgId: undefined })).id, 'ordinary');
+
+  for (const markdownSupport of [true, false]) {
+    gateway.account = { ...account, markdownSupport };
+    gateway.bot.send = async (o: any) => {
+      assert.equal(o.msgType, markdownSupport ? 2 : 0);
+      assert.equal(o.target.msgId, 'question');
+      throw new ApiError('message_reference is not supported', 400, '/v2/groups/group-a/messages');
+    };
+    const before = ordinarySends;
+    assert.equal((await gateway.sendText(target, 'Answer', { msgId: 'question' })).id, 'ordinary');
+    assert.equal(ordinarySends, before + 1, 'unsupported reference must retry ordinary text exactly once');
+  }
+  for (const error of [
+    new ApiError('Network error', 0, '/v2/groups/group-a/messages'),
+    new ApiError('message_reference not supported', 503, '/v2/groups/group-a/messages'),
+    new ApiError('Rate limited', 429, '/v2/groups/group-a/messages'),
+    new ApiError('Unsupported content type', 400, '/v2/groups/group-a/messages'),
+    new ApiError('Invalid message_reference', 400, '/v2/groups/group-a/messages'),
+    new Error('message_reference not supported'),
+  ]) {
+    const before = ordinarySends;
+    gateway.bot.send = async () => { throw error; };
+    await assert.rejects(() => gateway.sendText(target, 'Answer', { msgId: 'question' }), e => e === error);
+    assert.equal(ordinarySends, before, 'ambiguous or unrelated failures must never cause a duplicate fallback send');
+  }
+
   console.log('QQ native reply checks passed: exact triggering message, Markdown/plain text, group/account isolation, fallback and SDK wire body.');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });
