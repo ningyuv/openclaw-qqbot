@@ -64,6 +64,13 @@ async function main() {
   assert.deepEqual(payload.extra.MediaPaths, quoted.state.processedAttachments.localMediaPaths);
   assert.deepEqual(payload.extra.MediaTypes, ['image/png']);
 
+  const uncachedQuote = await run(message('uncached-quote', {
+    content: 'Describe the quoted picture', rawEventType: 'GROUP_AT_MESSAGE_CREATE', refMsgIdx: 'REFIDX_uncached',
+    msgElements: [{ attachments: [{ content_type: 'image/png', filename: 'uncached.png', url: 'https://example.com/uncached.png' }] }],
+  }));
+  assert.ok(uncachedQuote.state.processedAttachments.localMediaPaths.some((p: string) => p.endsWith('uncached.png')),
+    'msg_elements image URL must work without any cached original');
+
   await run(message('split-picture', { attachments: [{ ...picture, url: 'https://example.com/split.png', filename: 'split.png' }] }));
   const split = await run(message('split-at', { content: 'Look at that', rawEventType: 'GROUP_AT_MESSAGE_CREATE' }));
   assert.ok(split.state.processedAttachments.localMediaPaths.some((p: string) => p.endsWith('split.png')),
