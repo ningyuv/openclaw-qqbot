@@ -24,6 +24,7 @@ import { getQQBotDataDir } from '../utils/platform.js';
 import { buildUserAgent } from '../bot-instance.js';
 import { createPluginWebhookAdapter } from '../adapter/webhook.js';
 import { getPersistedRefIndexStore } from '../features/ref-index-store.js';
+import { quotedTextOptions } from '../features/reply-reference.js';
 import { getCachedMsgId } from '../features/msgid-cache.js';
 
 export interface GatewayCallbacks {
@@ -167,8 +168,10 @@ export class QQBotGateway {
   }
 
   async sendText(target: ReplyTarget, text: string, opts?: SendOptions): Promise<MessageResponse> {
+    const resolvedTarget = attachMsgId(target, opts);
+    const quoted = quotedTextOptions(this.account.accountId, resolvedTarget, text, this.account.markdownSupport);
     return withTimeout(
-      this.bot.sendText(attachMsgId(target, opts), text),
+      quoted ? this.bot.send(quoted) : this.bot.sendText(resolvedTarget, text),
       this.textTimeout, 'sendText',
     );
   }
@@ -281,6 +284,14 @@ export class QQBotGateway {
     this.bot.sendText = async (target, text, ...rest) => {
       const result = await origSendText(target, text, ...rest);
       storeEntry(result, text, target.scope);
+      return result;
+    };
+
+    // Explicit sends (native quote + Markdown) need the same outgoing ref-index recording.
+    const origSend = this.bot.send.bind(this.bot);
+    this.bot.send = async (opts) => {
+      const result = await origSend(opts);
+      storeEntry(result, opts.content ?? opts.markdown?.content ?? '', opts.target.scope);
       return result;
     };
 
