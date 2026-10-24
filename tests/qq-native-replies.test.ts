@@ -13,14 +13,16 @@ async function main() {
     replyTarget: { scope: 'group', targetId: 'group-a' },
   } } as any, async () => {});
   const target = { scope: 'group', targetId: 'group-a', msgId: 'question' } as const;
-  const options = quotedTextOptions(account.accountId, target, 'Answer', true)!;
+  const options = quotedTextOptions(account.accountId, target, 'Answer')!;
   assert.equal(options.messageReference?.message_id, 'REFIDX_question', 'reply must quote the triggering message');
-  assert.equal(options.markdown?.content, 'Answer');
-  assert.equal(quotedTextOptions('another-account', target, 'Answer', true), undefined);
-  assert.equal(quotedTextOptions(account.accountId, { ...target, targetId: 'group-b' }, 'Answer', true), undefined);
-  assert.equal(quotedTextOptions(account.accountId, { ...target, scope: 'c2c' }, 'Answer', true), undefined);
-  assert.equal(quotedTextOptions(account.accountId, { ...target, msgId: 'unknown' }, 'Answer', true), undefined);
-  assert.equal(quotedTextOptions(account.accountId, target, 'Answer', false)?.content, 'Answer');
+  assert.equal(options.msgType, 0, 'native quotes must use the SDK-compatible plain-text lane');
+  assert.equal(options.content, 'Answer');
+  assert.equal(options.markdown, undefined, 'never combine a native reference with a Markdown body');
+  assert.equal(quotedTextOptions('another-account', target, 'Answer'), undefined);
+  assert.equal(quotedTextOptions(account.accountId, { ...target, targetId: 'group-b' }, 'Answer'), undefined);
+  assert.equal(quotedTextOptions(account.accountId, { ...target, scope: 'c2c' }, 'Answer'), undefined);
+  assert.equal(quotedTextOptions(account.accountId, { ...target, msgId: 'unknown' }, 'Answer'), undefined);
+  assert.equal(quotedTextOptions(account.accountId, target, 'Answer')?.content, 'Answer');
 
   let wire: any;
   await QQBot.prototype.send.call({ messageApi: { sendRaw: async (_scope: any, _peer: any, _creds: any, body: any) => {
@@ -28,7 +30,19 @@ async function main() {
   } } } as any, options);
   assert.deepEqual(wire.message_reference, { message_id: 'REFIDX_question' });
   assert.equal(wire.msg_id, 'question');
-  assert.equal(wire.msg_type, 2);
+  assert.equal(wire.msg_type, 0);
+  assert.equal(wire.content, 'Answer');
+  assert.equal(wire.markdown, undefined);
+
+  let ordinaryMode: any;
+  await QQBot.prototype.sendText.call({ messageApi: {
+    sendMessage: async (_scope: any, _peer: any, content: string, _creds: any, opts: any) => {
+      ordinaryMode = { content, opts }; return { id: 'ordinary-sdk' };
+    },
+  } } as any, target, 'Ordinary answer');
+  assert.equal(ordinaryMode.content, 'Ordinary answer');
+  assert.equal(ordinaryMode.opts.msgId, 'question');
+  assert.equal(ordinaryMode.opts.messageReference, undefined);
 
   const gateway = Object.create(QQBotGateway.prototype) as any;
   gateway.account = account; gateway.textTimeout = 0;
@@ -56,7 +70,9 @@ async function main() {
   for (const markdownSupport of [true, false]) {
     gateway.account = { ...account, markdownSupport };
     gateway.bot.send = async (o: any) => {
-      assert.equal(o.msgType, markdownSupport ? 2 : 0);
+      assert.equal(o.msgType, 0, 'quoted messages use plain text regardless of the account Markdown setting');
+      assert.equal(o.content, 'Answer');
+      assert.equal(o.markdown, undefined);
       assert.equal(o.target.msgId, 'question');
       throw new ApiError('message_reference is not supported', 400, '/v2/groups/group-a/messages');
     };

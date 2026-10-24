@@ -173,7 +173,7 @@ export class QQBotGateway {
     // A cached passive-reply ID is not an explicit request to quote a message.
     const quoteMsgId = opts?.msgId ?? target.msgId;
     const quoted = quoteMsgId
-      ? quotedTextOptions(this.account.accountId, { ...target, msgId: quoteMsgId }, text, this.account.markdownSupport)
+      ? quotedTextOptions(this.account.accountId, { ...target, msgId: quoteMsgId }, text)
       : undefined;
     return withTimeout(
       quoted ? this.bot.send(quoted).catch((err: unknown) => {
