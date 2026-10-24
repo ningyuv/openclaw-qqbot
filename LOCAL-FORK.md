@@ -1,7 +1,7 @@
 # QQ local fork
 
 User-authorized fork of tencent-connect/openclaw-qqbot, upstream commit 8998881, official version 2.0.4.
-Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.4. Plugin ID and QQ channel ID remain unchanged.
+Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.5. Plugin ID and QQ channel ID remain unchanged.
 Branch: fix/qq-media-and-native-replies. GitHub fork: https://github.com/ningyuv/openclaw-qqbot
 Review branch: https://github.com/ningyuv/openclaw-qqbot/tree/fix/qq-media-and-native-replies
 
@@ -38,3 +38,5 @@ Operation:
 - Future general plugin updates must preserve this fork. Review/rebase upstream changes and rebuild the package deliberately.
 - Roll back using the official installer for @tencent-connect/openclaw-qqbot@2.0.4 with --force, then verify channel status. Do not restore the entire shared state database over newer conversations/configuration.
 - No Docker image was built or changed for this work.
+
+Markdown image delivery: inline HTTP(S) Markdown images outside code blocks/spans are converted to image sends through the existing validated media path. Successful images are removed from the text; failures retain the original link. Inline/structured media and block/final deliveries share deduplication. Reply text still uses the selected plain-text native quote mode. The recent backer-rod source URL returned HTTP 403 from this server, so extraction cannot guarantee delivery of that particular source.
