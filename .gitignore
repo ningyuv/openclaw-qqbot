@@ -10,3 +10,5 @@ openclaw.json
 *.log
 pnpm-lock.yaml
 tests/.*.cjs
+
+tests/.*.mjs

@@ -232,6 +232,53 @@ await test('kind=final after a block still forwards only new media', async () =>
   assert.deepEqual(replies[1]?.payload.mediaUrls, ['https://cdn/b.png']);
 });
 
+console.log('\n=== Markdown images ===');
+
+await test('Markdown image is sent as an image and removed from the text', async () => {
+  const { state, replies, media } = createState();
+  const options: unknown[] = [];
+  state.ctx.sendMedia = async (_to, source, opts) => { media.push(source); options.push(opts); return {}; };
+  const text = 'Here is the product:\n![product](https://example.com/backer-rod.png?size=large)\nUse sealant afterwards.';
+  await deliverDispatchPayload({ text }, { kind: 'block' }, state);
+  await deliverDispatchPayload({ text }, { kind: 'final' }, state);
+  assert.deepEqual(media, ['https://example.com/backer-rod.png?size=large']);
+  assert.deepEqual(options, [{ mediaKind: 'image' }]);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]?.payload.text, 'Here is the product:\n\nUse sealant afterwards.');
+});
+
+await test('inline and structured images share turn-level deduplication', async () => {
+  const { state, replies, media } = createState();
+  const url = 'https://example.com/product.png';
+  await deliverDispatchPayload({ text: `![a](${url}) ![b](${url})`, mediaUrl: url }, { kind: 'block' }, state);
+  await deliverDispatchPayload({ text: `![a](${url})`, mediaUrl: url }, { kind: 'final' }, state);
+  assert.deepEqual(media, [url]);
+  assert.equal(replies.filter(r => r.payload.text?.trim()).length, 0);
+});
+
+await test('failed inline images retain the original link and can retry without repeating the text', async () => {
+  const { state, replies, media } = createState();
+  let calls = 0;
+  state.ctx.sendMedia = async (_to, source) => {
+    calls++;
+    if (calls === 1) return { error: 'upload unavailable' };
+    media.push(source); return {};
+  };
+  const text = 'Product: ![reference](https://example.com/product.png)';
+  await deliverDispatchPayload({ text }, { kind: 'block' }, state);
+  assert.equal(replies[0]?.payload.text, text);
+  await deliverDispatchPayload({ text }, { kind: 'final' }, state);
+  assert.deepEqual(media, ['https://example.com/product.png']);
+  assert.equal(replies.filter(r => r.payload.text).length, 1);
+});
+
+await test('code examples, ordinary links and unsafe image schemes never trigger uploads', async () => {
+  const { state, media } = createState();
+  const text = '```md\n![code](https://example.com/code.png)\n```\n`![inline](https://example.com/inline.png)`\n[link](https://example.com/page) ![unsafe](file:///etc/passwd)';
+  await deliverDispatchPayload({ text }, { kind: 'final' }, state);
+  assert.deepEqual(media, []);
+});
+
 console.log('\n=== helpers ===');
 
 await test('formatLogTextPreview shows delivered text and clips long payloads', () => {

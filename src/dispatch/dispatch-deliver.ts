@@ -6,6 +6,7 @@
  * kind=final 与已发 block 去重；流占用时收尾后跳过静态文本。
  */
 import type { PluginLogger } from '../utils/plugin-logger.js';
+import { extractMarkdownImages, removeDeliveredImages } from '../outbound/markdown-images.js';
 import { formatLogTextPreview } from '../utils/log-text-preview.js';
 import type {
   DeliverContext,
@@ -43,7 +44,10 @@ export async function deliverDispatchPayload(
   state: DispatchDeliverState,
 ): Promise<void> {
   const kind = info?.kind;
+  const originalText = payload.text?.trim() ?? '';
+  if (kind !== 'tool') payload = await forwardInlineImages(payload, state);
   const text = payload.text?.trim() ?? '';
+  const textAlreadyDelivered = state.deliveredTexts.has(text) || state.deliveredTexts.has(originalText);
   const hasMedia = !!(payload.mediaUrl || payload.mediaUrls?.length);
   const sendReply = state.deliverReply;
   state.log?.debug(
@@ -55,6 +59,8 @@ export async function deliverDispatchPayload(
     return;
   }
 
+  if (originalText && !text && !hasMedia && !payload.audioAsVoice && !streamOwnsText(state.streamingController)) return;
+
   if (kind === 'block') {
     if (payload.audioAsVoice) {
       await sendReply(payload, info, state.ctx);
@@ -62,11 +68,12 @@ export async function deliverDispatchPayload(
       return;
     }
     await forwardMediaUrls(payload, state);
-    if (streamOwnsText(state.streamingController) || !text || state.deliveredTexts.has(text)) {
+    if (streamOwnsText(state.streamingController) || !text || textAlreadyDelivered) {
       return;
     }
     await sendReply({ text }, info, state.ctx);
     state.deliveredTexts.add(text);
+    state.deliveredTexts.add(originalText);
     return;
   }
 
@@ -80,16 +87,16 @@ export async function deliverDispatchPayload(
     state.log?.warn(`streaming fallback to static`);
   }
 
-  if (text && state.deliveredTexts.has(text) && !hasMedia && !payload.audioAsVoice) {
+  if (text && textAlreadyDelivered && !hasMedia && !payload.audioAsVoice) {
     return;
   }
 
   const filteredPayload = filterDeliveredMedia(payload, state.deliveredMediaUrls);
-  const payloadToSend = text && state.deliveredTexts.has(text)
+  const payloadToSend = text && textAlreadyDelivered
     ? { ...filteredPayload, text: undefined }
     : filteredPayload;
   await sendReply(payloadToSend, info, state.ctx);
-  if (text) state.deliveredTexts.add(text);
+  if (text) { state.deliveredTexts.add(text); state.deliveredTexts.add(originalText); }
   for (const u of payloadToSend.mediaUrls ?? []) state.deliveredMediaUrls.add(u);
   if (payloadToSend.mediaUrl) state.deliveredMediaUrls.add(payloadToSend.mediaUrl);
 }
@@ -104,6 +111,23 @@ export async function deliverDispatchPayloadSafe(
   } catch (err) {
     state.log?.error(`deliver error: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/** Send Markdown images through the existing validated media path, once per turn. */
+async function forwardInlineImages(payload: DeliverPayload, state: DispatchDeliverState): Promise<DeliverPayload> {
+  const text = payload.text ?? '';
+  const images = extractMarkdownImages(text);
+  for (const url of new Set(images.map(image => image.url))) {
+    if (state.deliveredMediaUrls.has(url)) continue;
+    try {
+      const result = await state.ctx.sendMedia(state.ctx.qualifiedTarget, url, { mediaKind: 'image' });
+      if (result.error) { state.log?.error(`inline image send failed: ${result.error}`); continue; }
+      state.deliveredMediaUrls.add(url);
+    } catch (err) {
+      state.log?.error(`inline image send failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return images.length ? { ...payload, text: removeDeliveredImages(text, images, state.deliveredMediaUrls) } : payload;
 }
 
 async function forwardMediaUrls(

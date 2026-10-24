@@ -2,11 +2,12 @@ const { build } = require('esbuild');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 (async () => {
-  for (const test of ['qq-images', 'qq-native-replies', 'body-assembler']) {
-  const output = `tests/.${test}.test.cjs`;
+  for (const test of ['qq-images', 'qq-native-replies', 'body-assembler', 'markdown-images', 'dispatch-deliver']) {
+  const esm = test === 'dispatch-deliver';
+  const output = `tests/.${test}.test.${esm ? 'mjs' : 'cjs'}`;
   await build({
     entryPoints: [`tests/${test}.test.ts`], outfile: output,
-    bundle: true, platform: 'node', format: 'cjs', external: ['openclaw', 'openclaw/*'],
+    bundle: true, platform: 'node', format: esm ? 'esm' : 'cjs', external: ['openclaw', 'openclaw/*'],
     plugins: [{ name: 'offline-media-fixture', setup(b) {
       b.onLoad({ filter: /qrcode-terminal\/lib\/main\.js$/ }, async args => ({ contents: (await require('node:fs/promises').readFile(args.path, 'utf8')).replace(/\\033/g, '\\x1b'), loader: 'js' }));
       b.onResolve({ filter: /adapter\/media\.js$/ }, () => ({ path: path.resolve('tests/helpers/media-download.ts') }));
