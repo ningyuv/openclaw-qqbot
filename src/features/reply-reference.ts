@@ -25,14 +25,17 @@ export function rememberReplyReferences(accountId: string): Middleware {
   };
 }
 
-/** Build a visible group quote only when an unexpired exact reference is known. */
-export function quotedTextOptions(accountId: string, target: ReplyTarget, text: string, markdown: boolean): SendMessageOptions | undefined {
+/** Build a plain-text group quote only when an unexpired exact reference is known. */
+export function quotedTextOptions(accountId: string, target: ReplyTarget, text: string): SendMessageOptions | undefined {
   if (target.scope !== 'group' || !target.msgId) return undefined;
   const entry = refs.get(key(accountId, target, target.msgId));
   if (!entry || Date.now() - entry.at > TTL_MS) return undefined;
   return {
     target,
-    ...(markdown ? { msgType: 2, markdown: { content: text } } : { msgType: 0, content: text }),
+    // Match the SDK's plain-text-only reference lane: some QQ clients duplicate
+    // the displayed body when Markdown and a native reference are combined.
+    msgType: 0,
+    content: text,
     messageReference: { message_id: entry.ref },
   };
 }
