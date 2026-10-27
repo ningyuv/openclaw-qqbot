@@ -1,7 +1,7 @@
 # QQ local fork
 
 User-authorized fork of tencent-connect/openclaw-qqbot, upstream commit 8998881, official version 2.0.4.
-Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.5. Plugin ID and QQ channel ID remain unchanged.
+Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.6. Plugin ID and QQ channel ID remain unchanged.
 Branch: fix/qq-media-and-native-replies. GitHub fork: https://github.com/ningyuv/openclaw-qqbot
 Review branch: https://github.com/ningyuv/openclaw-qqbot/tree/fix/qq-media-and-native-replies
 
@@ -12,6 +12,7 @@ Changes:
 - Keep mentionGate enabled. Unmentioned chatter never invokes the agent or downloads attachments.
 - Context images: explicit quote first, most recent four buffered history pictures, at most eight context images total. Image downloads have a 20 MiB / 15 second limit. Other upstream attachment limits remain unchanged.
 - Native group text replies carry message_reference.message_id=the triggering message's msgIdx/REFIDX, while retaining msg_id. Reply reference lookup is scoped by account, peer and exact message ID, with a ten-minute TTL.
+- Messages containing Markdown formatting use ordinary SDK delivery (account Markdown mode), without a native quote. Plain text retains native quotes. This is the user-selected policy as of 2026-10-27.
 - Native quoted replies always use plain text (msg_type=0 with content and no markdown), matching the SDK reference lane. Some mobile QQ clients displayed one Markdown+reference message as concatenated duplicate text despite a single successful send. Ordinary, unquoted messages retain the account Markdown setting. Live client validation after this change is pending.
 - Native quotes use explicit reply IDs only; cached passive-reply IDs do not select a quote.
 - Explicit HTTP 400/422 unsupported-reference rejections retry ordinary text once with the original quoted target, even if the peer cache advanced; network/timeouts/rate-limit/server errors do not retry.
@@ -39,4 +40,4 @@ Operation:
 - Roll back using the official installer for @tencent-connect/openclaw-qqbot@2.0.4 with --force, then verify channel status. Do not restore the entire shared state database over newer conversations/configuration.
 - No Docker image was built or changed for this work.
 
-Markdown image delivery: inline HTTP(S) Markdown images outside code blocks/spans are converted to image sends through the existing validated media path. Successful images are removed from the text; failures retain the original link. Inline/structured media and block/final deliveries share deduplication. Reply text still uses the selected plain-text native quote mode. The recent backer-rod source URL returned HTTP 403 from this server, so extraction cannot guarantee delivery of that particular source.
+Markdown image delivery: inline HTTP(S) Markdown images outside code blocks/spans are converted to image sends through the existing validated media path. Successful images are removed from the text; failures retain the original link. Inline/structured media and block/final deliveries share deduplication. Reply text uses ordinary Markdown delivery when formatting is detected; unformatted text uses native quotes. The recent backer-rod source URL returned HTTP 403 from this server, so extraction cannot guarantee delivery of that particular source.

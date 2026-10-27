@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '@tencent-connect/qqbot-nodejs/protocol';
 import { cacheMsgId } from '../src/features/msgid-cache.js';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
-import { rememberReplyReferences, quotedTextOptions } from '../src/features/reply-reference.js';
+import { rememberReplyReferences, quotedTextOptions, hasMarkdownFormatting } from '../src/features/reply-reference.js';
 import { QQBotGateway } from '../src/gateway/qqbot-gateway.js';
 
 const account = { accountId: 'test-account', markdownSupport: true, config: {} } as any;
@@ -23,6 +23,21 @@ async function main() {
   assert.equal(quotedTextOptions(account.accountId, { ...target, scope: 'c2c' }, 'Answer'), undefined);
   assert.equal(quotedTextOptions(account.accountId, { ...target, msgId: 'unknown' }, 'Answer'), undefined);
   assert.equal(quotedTextOptions(account.accountId, target, 'Answer')?.content, 'Answer');
+
+  const formatted = [
+    '这是*重点*内容', '这是_重点_内容', '# 标题', '**加粗**', '__加粗__', '*强调*', '_强调_', '~~删除~~',
+    '`code`', '```ts\nconst a = 1;\n```', '- 项目', '1. 项目', '> 引文',
+    '[网站](https://example.com)', '![图片](https://example.com/a.png)',
+    '标题\n===', '---', '| A | B |\n| --- | --- |\n| 1 | 2 |',
+  ];
+  for (const text of formatted) {
+    assert.equal(hasMarkdownFormatting(text), true, text);
+    assert.equal(quotedTextOptions(account.accountId, target, text), undefined, text);
+  }
+  for (const text of ['普通回复', '访问 https://example.com/a_b', '2 * 3 = 6', 'file_name.txt', String.raw`\*\*字面星号\*\*`]) {
+    assert.equal(hasMarkdownFormatting(text), false, text);
+    assert.ok(quotedTextOptions(account.accountId, target, text), text);
+  }
 
   let wire: any;
   await QQBot.prototype.send.call({ messageApi: { sendRaw: async (_scope: any, _peer: any, _creds: any, body: any) => {
@@ -50,6 +65,20 @@ async function main() {
     sendText: async () => { throw new Error('native quote path was bypassed'); } };
   assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, 'Answer', { msgId: 'question' })).id, 'sent');
   assert.equal(wire.messageReference.message_id, 'REFIDX_question');
+  for (const markdownSupport of [true, false]) {
+    gateway.account = { ...account, markdownSupport };
+    gateway.bot = {
+      send: async () => { throw new Error('Markdown must never use a native reference'); },
+      sendText: async (t: any, text: string) => {
+        assert.equal(t.msgId, 'question');
+        assert.equal(text, '**加粗**');
+        return { id: 'markdown-ordinary' };
+      },
+    };
+    assert.equal((await gateway.sendText(target, '**加粗**')).id, 'markdown-ordinary');
+    assert.equal((await gateway.sendText({ scope: 'group', targetId: 'group-a' }, '**加粗**', { msgId: 'question' })).id, 'markdown-ordinary');
+  }
+  gateway.account = account;
   // An API call without an explicit reply ID must retain ordinary text behavior,
   // even when passive-reply authorization can be restored from the peer cache.
   cacheMsgId('group', 'group-a', 'question');

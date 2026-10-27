@@ -25,9 +25,23 @@ export function rememberReplyReferences(accountId: string): Middleware {
   };
 }
 
-/** Build a plain-text group quote only when an unexpired exact reference is known. */
+/** Prefer ordinary Markdown delivery for formatted text; never combine it with a native quote. */
+export function hasMarkdownFormatting(text: string): boolean {
+  // Remove escaped punctuation so literal markers do not disable ordinary quotes.
+  const value = text.replace(/\\[\\`*_{}\[\]()#+.!>~|-]/g, '');
+  return /(?:^|\n) {0,3}(?:#{1,6}\s+|>\s?|[-+*]\s+|\d+[.)]\s+|`{3,}|~{3,})/.test(value)
+    || /`+[^`\n]+`+/.test(value)
+    || /(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~)/.test(value)
+    || /(?:\*[^*\s](?:[^*\n]*[^*\s])?\*|(?:^|[^a-zA-Z0-9_])_[^_\s](?:[^_\n]*[^_\s])?_(?=$|[^a-zA-Z0-9_]))/.test(value)
+    || /!?\[[^\]\n]*\]\([^\n]+\)/.test(value)
+    || /(?:^|\n) {0,3}(?:[-*_] *){3,}(?:\n|$)/.test(value)
+    || /(?:^|\n)[^\n]+\n {0,3}(?:=+|-+)\s*(?:\n|$)/.test(value)
+    || /(?:^|\n) *\|?(?: *:?-{3,}:? *\|)+ *:?-{3,}:? *\|? *(?:\n|$)/.test(value);
+}
+
+/** Build a plain-text group quote only for unformatted text with an exact reference. */
 export function quotedTextOptions(accountId: string, target: ReplyTarget, text: string): SendMessageOptions | undefined {
-  if (target.scope !== 'group' || !target.msgId) return undefined;
+  if (target.scope !== 'group' || !target.msgId || hasMarkdownFormatting(text)) return undefined;
   const entry = refs.get(key(accountId, target, target.msgId));
   if (!entry || Date.now() - entry.at > TTL_MS) return undefined;
   return {
