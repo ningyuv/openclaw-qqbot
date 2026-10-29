@@ -27,6 +27,7 @@ import { createPluginWebhookAdapter } from '../adapter/webhook.js';
 import { getPersistedRefIndexStore } from '../features/ref-index-store.js';
 import { quotedTextOptions } from '../features/reply-reference.js';
 import { getCachedMsgId } from '../features/msgid-cache.js';
+import { withExpiredReplyFallback } from './expired-reply-fallback.js';
 
 export interface GatewayCallbacks {
   onReady?: () => void;
@@ -175,12 +176,16 @@ export class QQBotGateway {
     const quoted = quoteMsgId
       ? quotedTextOptions(this.account.accountId, { ...target, msgId: quoteMsgId }, text)
       : undefined;
+    const replyTarget = quoted?.target ?? resolvedTarget;
     return withTimeout(
-      quoted ? this.bot.send(quoted).catch((err: unknown) => {
-        if (!isUnsupportedReferenceError(err)) throw err;
-        this.log.warn('QQ rejected native message references; retrying this reply as ordinary text');
-        return this.bot.sendText(quoted.target, text);
-      }) : this.bot.sendText(resolvedTarget, text),
+      withExpiredReplyFallback(replyTarget, async (sendTarget) => {
+        if (!sendTarget.msgId || !quoted) return this.bot.sendText(sendTarget, text);
+        return this.bot.send({ ...quoted, target: sendTarget }).catch((err: unknown) => {
+          if (!isUnsupportedReferenceError(err)) throw err;
+          this.log.warn('QQ rejected native message references; retrying this reply as ordinary text');
+          return this.bot.sendText(sendTarget, text);
+        });
+      }, (message) => this.log.warn(message)),
       this.textTimeout, 'sendText',
     );
   }
@@ -305,12 +310,17 @@ export class QQBotGateway {
     };
 
     // sendMedia → ext_info 在 result.message 里
-    const origSendMedia = this.bot.sendMedia.bind(this.bot);
-    this.bot.sendMedia = async (params: any) => {
-      const result = await origSendMedia(params);
-      const msg = (result as any).message as MessageResponse | undefined;
-      if (msg) storeEntry(msg, '', params.target?.scope ?? '', params.mediaKind);
-      return result;
+    this.bot.sendMedia = async (params) => {
+      // Match the SDK upload+send lane, retaining file_info across an expired-ID rejection.
+      const upload = await this.bot.uploadMedia({ ...params, srvSendMsg: false });
+      const msg = await withExpiredReplyFallback(params.target, (target) => origSend({
+        target,
+        msgType: 7,
+        media: { file_info: upload.file_info },
+        ...(params.content ? { content: params.content } : {}),
+      }), (message) => this.log.warn(message));
+      storeEntry(msg, '', params.target.scope, (params as any).mediaKind);
+      return { upload, message: msg };
     };
 
     // openStream → 流式消息 complete() 时才返回 ext_info.ref_idx

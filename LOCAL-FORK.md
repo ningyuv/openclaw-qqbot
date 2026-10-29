@@ -1,7 +1,7 @@
 # QQ local fork
 
 User-authorized fork of tencent-connect/openclaw-qqbot, upstream commit 8998881, official version 2.0.4.
-Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.6. Plugin ID and QQ channel ID remain unchanged.
+Local package: @ningyuv/openclaw-qqbot 2.0.4-ningyuv.7. Plugin ID and QQ channel ID remain unchanged.
 Branch: fix/qq-media-and-native-replies. GitHub fork: https://github.com/ningyuv/openclaw-qqbot
 Review branch: https://github.com/ningyuv/openclaw-qqbot/tree/fix/qq-media-and-native-replies
 
@@ -41,3 +41,5 @@ Operation:
 - No Docker image was built or changed for this work.
 
 Markdown image delivery: inline HTTP(S) Markdown images outside code blocks/spans are converted to image sends through the existing validated media path. Successful images are removed from the text; failures retain the original link. Inline/structured media and block/final deliveries share deduplication. Reply text uses ordinary Markdown delivery when formatting is detected; unformatted text uses native quotes. The recent backer-rod source URL returned HTTP 403 from this server, so extraction cannot guarantee delivery of that particular source.
+
+Expired passive reply fallback (2026-10-29): user confirms proactive-message permission. Text and all media retry once as proactive after a structured HTTP400 rejection explicitly saying msg_id expired, on the exact original peer messages endpoint. Clear msgId and native quote, preserve original peer/account and body/Markdown behavior. Media uploads once with srvSendMsg:false, reuses file_info across the rejected passive send and proactive retry, and retains outgoing reference indexing. Do not retry network/timeout/5xx/rate-limit, unrelated errors, upload failures, wrong-peer endpoints, or failed proactive delivery. Platform proactive permission/quota errors propagate.
