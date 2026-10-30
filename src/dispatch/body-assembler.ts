@@ -61,7 +61,9 @@ export function assembleBody(
   const isGroup = msg.kind === 'group';
 
   const mentionState = ctx.state.mention as { wasMentioned?: boolean } | undefined;
-  const wasMentioned = mentionState?.wasMentioned ?? false;
+  const mergedInput = ctx.state.mergedMessages as MiddlewareContext[] | undefined;
+  const wasMentioned = (mentionState?.wasMentioned ?? false) ||
+    (mergedInput?.some((item) => (item.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned) ?? false);
   const processed = ctx.state.processedAttachments as ProcessedAttachments | undefined;
   const quote = ctx.state.quote as ResolvedQuote | undefined;
   const history = ctx.state.history as HistoryEntry[] | undefined;
@@ -190,7 +192,7 @@ function formatMergedLine(
   const content = (m.content ?? '').trim();
 
   if (opts.formatEnvelope && opts.isGroup) {
-    const atYouTag = opts.isLast && opts.wasMentioned ? ' (@you)' : '';
+    const atYouTag = (ctx.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned ? ' (@you)' : '';
     return opts.formatEnvelope({
       channel: 'qqbot',
       from: formatSenderLabel(m.senderName, m.senderId),
@@ -200,7 +202,7 @@ function formatMergedLine(
     });
   }
   return opts.isGroup
-    ? `${formatSenderLabel(m.senderName, m.senderId)}: ${content}`
+    ? `${formatSenderLabel(m.senderName, m.senderId)}${(ctx.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned ? ' (@you)' : ''}: ${content}`
     : content;
 }
 

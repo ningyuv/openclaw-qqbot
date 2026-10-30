@@ -84,6 +84,7 @@ export class QQBotGateway {
   readonly log: PluginLogger;
   private readonly textTimeout: number;
   private readonly mediaTimeout: number;
+  private disposeMiddlewares?: () => void;
 
   /** 完整模式：接收 + 发送（含中间件、session 持久化、ref-index） */
   constructor(account: ResolvedQQBotAccount, runtime: PluginRuntime, log?: PluginLogger);
@@ -119,7 +120,7 @@ export class QQBotGateway {
 
     this.wrapBotSendForRefIndex();
 
-    setupMiddlewares(this.bot, account, {
+    this.disposeMiddlewares = setupMiddlewares(this.bot, account, {
       getRuntime: () => runtime,
     });
   }
@@ -129,6 +130,7 @@ export class QQBotGateway {
       throw new Error(`[qqbot] Cannot start send-only gateway "${this.account.accountId}"`);
     }
     const runtime = this.runtime;
+    signal?.addEventListener('abort', () => this.disposeMiddlewares?.(), { once: true });
 
     const handleReady = () => {
       this.log.info(`Gateway ready`);
@@ -166,6 +168,7 @@ export class QQBotGateway {
   }
 
   async stop(): Promise<void> {
+    this.disposeMiddlewares?.();
     await this.bot.stop();
   }
 

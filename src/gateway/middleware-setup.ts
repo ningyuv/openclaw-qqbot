@@ -29,6 +29,7 @@ import { dynamicAccessControl } from '../middleware/access-control.js';
 import { rememberReplyReferences } from '../features/reply-reference.js';
 import { mediaHistoryBuffer, enrichMediaRef } from '../middleware/media-context.js';
 import { stripMentionText } from '../utils/mention.js';
+import { createGroupMessageBatch, mergeMessageContexts } from '../middleware/group-message-batch.js';
 
 export interface MiddlewareSetupOptions {
   /** 获取 runtime */
@@ -38,7 +39,7 @@ export interface MiddlewareSetupOptions {
 /**
  * 为 QQBot 实例编排完整的中间件链
  */
-export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts: MiddlewareSetupOptions): void {
+export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts: MiddlewareSetupOptions): () => void {
   // 1. 错误兜底（最外层洋葱皮）
   bot.use(errorHandler());
 
@@ -77,6 +78,10 @@ export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts
   const slash = slashCommand({ commands: buildCommandList(account, { getRuntime: opts.getRuntime }) });
   bot.use(slash.middleware);
 
+  // Gather text + following images before taking the existing per-peer lock.
+  const groupBatch = createGroupMessageBatch();
+  bot.use(groupBatch.middleware);
+
   // 10. 并发串行+合并（在副作用中间件之前）
   //     - 同 peer 串行处理，避免平台 session conflict
   //     - 处理中消息暂存 buffer；完成后合并为一条，继续走完剩余中间件链
@@ -91,24 +96,7 @@ export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts
     urgentPredicate: (ctx: MiddlewareContext) => {
       return (ctx.message.content as string ?? '').trim() === '/stop';
     },
-    onMerge: (buffered) => {
-      const last = buffered[buffered.length - 1];
-      if (buffered.length === 1) return last;
-
-      // 透传原始消息列表，格式拼接下沉给下游 envelopeFormatter / assembleBody
-      (last.state as Record<string, unknown>).mergedMessages = buffered;
-
-      // 合并附件（所有 buffer 中的附件汇总到 survivor）
-      const attachments = buffered.flatMap((c) => c.message.attachments ?? []);
-      if (attachments.length > 0) {
-        last.message.attachments = attachments;
-      }
-
-      // 清除 assembledBody，让 dispatch.ts 用合并后的 ctx 重新构建
-      delete (last.state as Record<string, unknown>).assembledBody;
-
-      return last;
-    },
+    onMerge: mergeMessageContexts,
   }));
 
   // 11. C2C 输入状态指示器
@@ -125,4 +113,5 @@ export function setupMiddlewares(bot: QQBot, account: ResolvedQQBotAccount, opts
       return assembled.agentBody;
     },
   }));
+  return groupBatch.dispose;
 }

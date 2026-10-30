@@ -2,7 +2,7 @@ const { build } = require('esbuild');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 (async () => {
-  for (const test of ['qq-images', 'qq-native-replies', 'qq-proactive-fallback', 'body-assembler', 'markdown-images', 'dispatch-deliver']) {
+  for (const test of ['group-message-batch', 'qq-images', 'qq-native-replies', 'qq-proactive-fallback', 'body-assembler', 'markdown-images', 'dispatch-deliver']) {
   const esm = test === 'dispatch-deliver';
   const output = `tests/.${test}.test.${esm ? 'mjs' : 'cjs'}`;
   await build({
