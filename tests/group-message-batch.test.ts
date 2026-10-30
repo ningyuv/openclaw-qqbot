@@ -66,6 +66,7 @@ async function main() {
     assert.deepEqual(genericCalls, [file]);
     const genericBody = assembleBody(file, file.message, { accountId: 'test', config: {} } as any).agentBody;
     assert.match(genericBody, /first requirement/); assert.match(genericBody, /additional requirement/);
+    for (const ctx of [text1, text2, file]) assert.ok(genericBody.includes(`[Source message_id: ${JSON.stringify(ctx.message.messageId)}]`));
     assert.match(genericBody, /Bob/); assert.match(genericBody, /alice/);
     assert.equal(file.message.attachments[0].content_type, 'application/pdf'); batch.dispose();
 

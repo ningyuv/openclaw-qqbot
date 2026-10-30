@@ -190,6 +190,11 @@ function formatMergedLine(
 ): string {
   const m = ctx.message;
   const content = (m.content ?? '').trim();
+  // Preserve each source id so separate replies can target the actual request,
+  // rather than every answer quoting the batch survivor.
+  const sourceId = opts.isGroup && m.messageId
+    ? `\n[Source message_id: ${JSON.stringify(m.messageId)}]`
+    : '';
 
   if (opts.formatEnvelope && opts.isGroup) {
     const atYouTag = (ctx.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned ? ' (@you)' : '';
@@ -197,12 +202,12 @@ function formatMergedLine(
       channel: 'qqbot',
       from: formatSenderLabel(m.senderName, m.senderId),
       timestamp: normalizeTimestamp(m.timestamp),
-      body: content + atYouTag,
+      body: content + atYouTag + sourceId,
       chatType: 'group',
     });
   }
   return opts.isGroup
-    ? `${formatSenderLabel(m.senderName, m.senderId)}${(ctx.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned ? ' (@you)' : ''}: ${content}`
+    ? `${formatSenderLabel(m.senderName, m.senderId)}${(ctx.state.mention as { wasMentioned?: boolean } | undefined)?.wasMentioned ? ' (@you)' : ''}: ${content}${sourceId}`
     : content;
 }
 

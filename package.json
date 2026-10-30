@@ -1,6 +1,6 @@
 {
   "name": "@ningyuv/openclaw-qqbot",
-  "version": "2.0.4-ningyuv.8",
+  "version": "2.0.4-ningyuv.9",
   "description": "QQ Bot channel plugin for OpenClaw",
   "publishConfig": {
     "access": "public"
